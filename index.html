@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0a1424"><title>Escáner QR y OCR · Inventario Escolar</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#18253b}*{box-sizing:border-box}body{margin:0;background:#edf2f8}main{max-width:550px;margin:0 auto;min-height:100dvh;background:white;padding:18px}header{display:flex;align-items:center;justify-content:space-between;gap:12px}h1{font-size:21px;margin:8px 0}p{line-height:1.5}.hint{color:#66748a;font-size:13px}.view{background:#081322;position:relative;overflow:hidden;border-radius:18px;aspect-ratio:3/4;max-height:66dvh;margin:16px 0}video{height:100%;width:100%;object-fit:cover}.frame{position:absolute;top:23%;left:13%;width:74%;aspect-ratio:1;border:4px solid #64e8be;border-radius:22px;box-shadow:0 0 0 100vmax #0007;pointer-events:none}.frame:after{content:'';position:absolute;inset:9px;border:1px solid #ffffff88;border-radius:14px}.label{position:absolute;bottom:20px;left:12px;right:12px;color:white;text-align:center;font-size:13px;text-shadow:0 1px 3px black}.actions{display:flex;gap:10px;flex-wrap:wrap}button,a.button{border:0;border-radius:12px;padding:13px 16px;background:#1769dc;color:white;font:600 14px system-ui;cursor:pointer;flex:1;text-align:center;text-decoration:none}button.secondary,a.secondary{background:#e8eef8;color:#1c3659}#status{padding:12px;border-radius:12px;background:#e9f4f0;color:#17634c;min-height:45px;margin-bottom:12px}#status.error{background:#fff0ed;color:#a12c24}footer{margin-top:20px;font-size:12px;text-align:center;color:#64748b}#manual{width:100%;padding:12px;border:1px solid #cad5e4;border-radius:10px;margin:8px 0}#file{display:none}
+</style></head><body><main><header><div><h1 id="pagetitle">Escáner QR</h1><div class="hint">Inventario Escolar · Cámara en vivo</div></div><button id="back" class="secondary" type="button">Volver</button></header>
+<div class="view"><video id="video" autoplay muted playsinline></video><div class="frame" id="guide"></div><div class="label" id="guidehelp">Centra el código QR dentro del marco</div></div>
+<div id="status" role="status">Pulsa «Activar cámara» para comenzar.</div>
+<div class="actions"><button id="start">Activar cámara</button><button id="flip" class="secondary">Cambiar cámara</button><button id="capture" class="secondary" hidden>Capturar etiqueta</button><button id="photo" class="secondary">Foto / Galería</button></div>
+<input type="file" accept="image/*" id="file"><section id="ocrreview" hidden><h2>Datos reconocidos</h2><p class="hint">Revisa los valores; el reconocimiento puede equivocarse. No se guardará nada automáticamente.</p><div id="ocrfields"></div><button id="applyocr">Enviar datos a la ficha</button></section><p class="hint">Si el navegador pide permiso, elige «Permitir». Si ya lo bloqueaste, habilítalo en la configuración de este sitio HTTPS.</p>
+<label for="manual" class="hint">Introducir código manualmente (opcional)</label><input id="manual" placeholder="Código interno"><button id="submit" class="secondary">Buscar código</button>
+<footer>Inventario creado por Nicolás C.R. — Docente de Computación e Inglés.</footer></main>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script><script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script><script>
+'use strict';
+const $=id=>document.getElementById(id),params=new URLSearchParams(location.search);
+const back=params.get('return')||'';const ocrMode=params.get('mode')==='ocr';
+function validBack(url){try{const u=new URL(url);return u.protocol==='https:'&&u.hostname==='script.google.com'&&/^\/macros\/s\/[^/]+\/exec\/?$/.test(u.pathname)}catch{return false}}
+function status(s,error=false){$('status').textContent=s;$('status').classList.toggle('error',error)}
+let stream=null,active=false,raf=0,working=false,rear=true,detector=null;
+const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
+function stop(){active=false;cancelAnimationFrame(raf);if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}$('video').srcObject=null}
+function done(raw){if(working)return;const code=String(raw||'').trim();if(!code)return;if(code.length>200){status('Código QR demasiado largo.',true);return}working=true;stop();if(!validBack(back)){status('Código detectado: '+code+'. Abre el lector desde el botón del inventario para regresar automáticamente.',true);$('manual').value=code;working=false;return}status('Código detectado. Regresando al inventario…');const u=new URL(back);u.searchParams.set('qr',code);location.replace(u.href)}
+async function tick(){if(!active||ocrMode)return;const v=$('video');if(v.readyState>=2&&v.videoWidth){try{let value='';if(detector){const codes=await detector.detect(v);value=codes[0]?.rawValue||''}else if(typeof jsQR==='function'){const scale=Math.min(1,720/Math.max(v.videoWidth,v.videoHeight));canvas.width=Math.round(v.videoWidth*scale);canvas.height=Math.round(v.videoHeight*scale);ctx.drawImage(v,0,0,canvas.width,canvas.height);const im=ctx.getImageData(0,0,canvas.width,canvas.height);value=jsQR(im.data,im.width,im.height,{inversionAttempts:'dontInvert'})?.data||''}if(value){done(value);return}}catch(e){status('Error leyendo QR: '+e.message,true)}}raf=requestAnimationFrame(tick)}
+async function start(){stop();working=false;if(!navigator.mediaDevices?.getUserMedia){status('Este navegador no permite la cámara. Abre esta página HTTPS en Chrome.',true);return}if(!ocrMode&&!('BarcodeDetector' in window)&&typeof jsQR!=='function'){status('No se cargó la biblioteca QR. Comprueba la conexión a Internet.',true);return}try{status('Solicitando permiso de cámara…');detector=null;if('BarcodeDetector' in window){try{detector=new BarcodeDetector({formats:['qr_code']})}catch{}}stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:rear?'environment':'user'},width:{ideal:1280},height:{ideal:720}}});$('video').srcObject=stream;await $('video').play();active=true;status(ocrMode?'Cámara activa. Enfoca la etiqueta y pulsa Capturar etiqueta.':'Cámara activa. Coloca el QR dentro del marco.');if(!ocrMode)tick()}catch(e){stop();status(e.name==='NotAllowedError'?'Permiso de cámara denegado. Habilita Cámara para este sitio en Chrome.':'No se pudo abrir la cámara: '+e.message,true)}}
+$('start').onclick=start;$('flip').onclick=()=>{rear=!rear;start()};$('back').onclick=()=>{stop();if(validBack(back))location.href=back;else history.back()};$('submit').onclick=()=>done($('manual').value);$('manual').onkeydown=e=>{if(e.key==='Enter')done(e.target.value)};$('photo').onclick=()=>$('file').click();
+$('file').onchange=async e=>{if(ocrMode){const f=e.target.files[0];e.target.value='';if(f)await recognizeOcr(f);return}const f=e.target.files[0];e.target.value='';if(!f)return;try{status('Analizando imagen…');const bmp=await createImageBitmap(f),scale=Math.min(1,1400/Math.max(bmp.width,bmp.height));canvas.width=Math.round(bmp.width*scale);canvas.height=Math.round(bmp.height*scale);ctx.drawImage(bmp,0,0,canvas.width,canvas.height);bmp.close();let value='';if('BarcodeDetector' in window){try{value=(await new BarcodeDetector({formats:['qr_code']}).detect(canvas))[0]?.rawValue||''}catch{}}if(!value&&typeof jsQR==='function'){const im=ctx.getImageData(0,0,canvas.width,canvas.height);value=jsQR(im.data,im.width,im.height,{inversionAttempts:'attemptBoth'})?.data||''}if(!value)throw Error('No se detectó un QR.');done(value)}catch(e){status(e.message,true)}};
+
+if(ocrMode){
+ $('pagetitle').textContent='Lector OCR';$('guidehelp').textContent='Encuadra la etiqueta completa, sin reflejos y con texto enfocado';
+ $('guide').style.cssText='position:absolute;left:7%;top:30%;width:86%;height:38%;aspect-ratio:auto;border:4px solid #64e8be;border-radius:16px;box-shadow:0 0 0 100vmax #0007;pointer-events:none';
+ $('capture').hidden=false;document.title='Lector OCR · Inventario Escolar';
+ status('Pulsa Activar cámara. Enfoca la etiqueta y luego Capturar etiqueta.');
+}
+const OCR_FIELDS=['Marca','Modelo','Número de Serie','Tipo de Bien','Categoría','Especificaciones Técnicas / Medidas','Observaciones'];
+let ocrData={};
+function parseEquipment(text){
+ const lines=text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);const out={};
+ const match=(regex)=>{for(const line of lines){const m=line.match(regex);if(m&&m[1]?.trim())return m[1].trim().replace(/[|]+$/,'').slice(0,160)}return ''};
+ const sn=match(/(?:S\/?N|SERIAL(?:\s*(?:NUMBER|NO\.?))?|N[°º.]?\s*DE\s*SERIE|SERVICE\s*TAG)\s*[:#=.-]?\s*([A-Z0-9][A-Z0-9-]{3,})/i);
+ if(sn)out['Número de Serie']=sn.toUpperCase();
+ const model=match(/(?:MODEL(?:O)?|MOD\.?|PRODUCT\s*(?:MODEL|NAME))\s*[:#=.-]?\s*(.+)/i);
+ if(model)out['Modelo']=model;
+ const brand=match(/(?:BRAND|MARCA|MANUFACTURER|FABRICANTE)\s*[:#=.-]?\s*(.+)/i);
+ const brands=['LENOVO','HP','DELL','ASUS','ACER','SAMSUNG','EPSON','CANON','BROTHER','APPLE','LG','SONY','TOSHIBA','HUAWEI','INTEL','LOGITECH','XIAOMI'];
+ const found=brands.find(b=>new RegExp('\\b'+b+'\\b','i').test(text));if(brand||found)out['Marca']=brand||found;
+ const type=match(/(?:DEVICE\s*TYPE|TIPO\s*DE\s*(?:EQUIPO|BIEN)|PRODUCT\s*TYPE)\s*[:#=.-]?\s*(.+)/i);
+ if(type)out['Tipo de Bien']=type;
+ const specs=lines.filter(l=>/\b(?:RAM|SSD|HDD|GB|TB|GHZ|MHZ|VOLT|INPUT|OUTPUT|WATT|PROCESSOR|CPU|CORE|MEMORY|PANTALLA|DISPLAY|RESOLUTION)\b/i.test(l)).slice(0,5).join(' | ');
+ if(specs)out['Especificaciones Técnicas / Medidas']=specs.slice(0,380);
+ return out;
+}
+async function recognizeOcr(source){
+ if(!window.Tesseract){status('No se cargó la biblioteca OCR. Comprueba la conexión a Internet.',true);return}
+ try{status('Reconociendo texto de la etiqueta… puede tardar unos segundos.');
+ const result=await Tesseract.recognize(source,'eng+spa',{logger:m=>{if(m.status==='recognizing text')status('Reconociendo texto… '+Math.round((m.progress||0)*100)+'%')}});
+ const raw=(result.data?.text||'').trim();if(!raw)throw Error('No se detectó texto. Acerca la cámara, enfoca y evita reflejos.');
+ ocrData=parseEquipment(raw);$('ocrfields').replaceChildren();
+ for(const field of OCR_FIELDS){const label=document.createElement('label');label.style.cssText='display:block;margin:10px 0;font-size:13px;font-weight:600';label.textContent=field;const input=document.createElement('textarea');input.dataset.field=field;input.value=ocrData[field]||'';input.rows=field==='Especificaciones Técnicas / Medidas'?3:1;input.style.cssText='display:block;width:100%;padding:10px;margin-top:5px;border:1px solid #cbd5e1;border-radius:9px;font:14px system-ui';label.append(input);$('ocrfields').append(label)}
+ const details=document.createElement('details');const summary=document.createElement('summary');summary.textContent='Ver texto OCR completo';const pre=document.createElement('pre');pre.textContent=raw.slice(0,3500);pre.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px';details.append(summary,pre);$('ocrfields').append(details);
+ $('ocrreview').hidden=false;stop();$('ocrreview').scrollIntoView({behavior:'smooth'});status('Texto leído. Corrige los campos y pulsa Enviar datos a la ficha.');
+ }catch(e){status('OCR: '+e.message,true)}
+}
+$('capture').onclick=()=>{const v=$('video');if(!v.videoWidth){status('Primero activa la cámara.',true);return}canvas.width=v.videoWidth;canvas.height=v.videoHeight;ctx.drawImage(v,0,0,canvas.width,canvas.height);canvas.toBlob(blob=>{if(blob)recognizeOcr(blob);else status('No se pudo capturar la imagen.',true)},'image/jpeg',.92)};
+$('applyocr').onclick=()=>{if(!validBack(back)){status('Abre el OCR desde el inventario para regresar a la ficha.',true);return}const data={};for(const el of $('ocrfields').querySelectorAll('[data-field]')){if(el.value.trim())data[el.dataset.field]=el.value.trim().slice(0,400)}if(!Object.keys(data).length){status('Introduce al menos un dato antes de continuar.',true);return}const payload=JSON.stringify(data);if(payload.length>3000){status('Los datos son demasiado largos; reduce las especificaciones.',true);return}const u=new URL(back);u.searchParams.set('ocr',payload);location.replace(u.href)};
+
+window.addEventListener('pagehide',stop);
+if(!validBack(back))status('Lector listo. Ábrelo desde «Escanear QR» en Inventario Escolar para regresar automáticamente.');
+</script></body></html>
